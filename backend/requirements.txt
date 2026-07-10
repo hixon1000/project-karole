@@ -1,0 +1,7 @@
+fastapi[standard]
+pymongo
+python-dotenv
+rapidfuzz
+google-re2
+#Shulk
+#Baber

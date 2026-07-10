@@ -1,0 +1,77 @@
+from pydantic import BaseModel, Field, ConfigDict, model_validator, StringConstraints
+from typing import Optional, Annotated
+from dotenv import load_dotenv, dotenv_values 
+import os
+import re2 as re
+
+load_dotenv()
+
+max_length_name = os.getenv("MAX_NAME_LENGTH")
+
+if (max_length_name != None): 
+    max_length_name = int(max_length_name)
+else:
+    max_length_name = 30
+
+url_match = re.compile(r"^(?:https?:\/\/)?(?:www\.)?(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|playlist\?|watch\?v=|watch\?.+(?:&|&#38;);v=))([a-zA-Z0-9\-_]{11})?(?:(?:\?|&|&#38;)index=((?:\d){1,3}))?(?:(?:\?|&|&#38;)?list=([a-zA-Z\-_0-9]{34}))?$")
+    
+class NameInput(BaseModel):
+    name: str = Field(pattern=r"^[\p{L}0-9_\s]+$")
+        
+    model_config = ConfigDict(str_max_length=max_length_name)
+    
+class NameChange(BaseModel):
+    name: str = Field(pattern=r"^[\p{L}0-9_\s]+$")
+    name_alt: str = Field(pattern=r"^[\p{L}0-9_\s]+$")
+    
+    model_config = ConfigDict(str_max_length=max_length_name)
+
+class NameEntry(BaseModel):
+    name_id: int
+    name: str = Field(pattern=r"^[\p{L}0-9_\s]+$")
+    name_alt: list[Annotated[str, StringConstraints(pattern=r"^[\p{L}0-9_\s]+$")]]
+    blacklist: bool
+    
+    model_config = ConfigDict(str_max_length=max_length_name)
+    
+class OperationInput(BaseModel):
+    name: str = Field(pattern=r"^[\p{L}0-9_\s]+$")
+    name_alt: str = Field(pattern=r"^[\p{L}0-9_\s]+$")
+    score: float
+    
+    model_config = ConfigDict(str_max_length=max_length_name)
+    
+class OperationID(BaseModel):
+    po_id: int
+    
+    
+class OperationEntry(BaseModel):
+    po_id: int
+    name: str = Field(pattern=r"^[\p{L}0-9_\s]+$")
+    name_alt: str = Field(pattern=r"^[\p{L}0-9_\s]+$")
+    score: float
+    model_config = ConfigDict(str_max_length=max_length_name)
+
+class PlaylistInput(BaseModel):
+    url: str = Field(max_length=100)
+    name: str = Field(pattern=r"^[\p{L}0-9_\s]+$")
+    author: str = Field(pattern=r"^[\p{L}0-9_\s*@#\^\&\%]+$")
+    url_id: str | None = None
+    service: str | None = None
+    
+    model_config = ConfigDict(str_max_length=max_length_name)
+    
+    @model_validator(mode="after")
+    def extract(self):
+        m = url_match.match(self.url)
+
+        if not m:
+            raise ValueError("Invalid YouTube Video URL")
+
+        if (not m.group(1) or m.group(1) == "videoseries"):
+            raise ValueError("Invalid YouTube Video URL")
+            
+        object.__setattr__(self, 'url_id', m.group(1))
+        object.__setattr__(self, 'service', "youtube")
+        return self
+    
