@@ -15,6 +15,7 @@ try:
     col.create_index("name",unique=True)
     col = client_init["karole"]["playlist"]
     col.create_index("p_id",unique=True)
+    col.create_index("order_num",unique=True)
     col.create_index([("order_num", 1), ("priority_num", 1)])
     col = client_init["karole"]["pending_operation"]
     col.create_index("po_id",unique=True)

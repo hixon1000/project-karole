@@ -3,5 +3,7 @@ pymongo
 python-dotenv
 rapidfuzz
 google-re2
+yt-dlp
+PyJWT
 #Shulk
 #Baber

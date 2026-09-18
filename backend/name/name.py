@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from database import client
 from models import NameChange, NameInput, NameEntry, OperationInput
 from pending_operation import pending_operation
+from auth import require_admin
 import pymongo, pymongo.errors
 from rapidfuzz import fuzz
 import concurrent.futures
@@ -12,6 +13,7 @@ col = client["name"]
 router = APIRouter(
     prefix="/names",
     tags=["names"],
+    dependencies=[Depends(require_admin)],
     responses={404: {"description": "Not found"}}
 )
 

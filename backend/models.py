@@ -44,7 +44,6 @@ class OperationInput(BaseModel):
 class OperationID(BaseModel):
     po_id: int
     
-    
 class OperationEntry(BaseModel):
     po_id: int
     name: str = Field(pattern=r"^[\p{L}0-9_\s]+$")
@@ -75,3 +74,38 @@ class PlaylistInput(BaseModel):
         object.__setattr__(self, 'service', "youtube")
         return self
     
+class PlaylistEntry(BaseModel):
+    p_id: int
+    order_num: int
+    priority_num: int
+    name_id: int
+    time: float
+    name: str = Field(pattern=r"^[\p{L}0-9_\s]+$")
+    author: str = Field(pattern=r"^[\p{L}0-9_\s*@#\^\&\%]+$")
+    service: str | None = None
+    url: str = Field(max_length=100)
+    url_id: str | None = None
+    url_creator: str = Field(max_length=30)
+    url_title: str = Field(max_length=100)
+    url_channel_icon: str = Field(max_length=2048)
+    file_loc: Optional[str] = None
+    is_downloaded: bool
+    
+    model_config = ConfigDict(str_max_length=max_length_name)
+
+    @model_validator(mode="after")
+    def validate_file_loc(self):
+        if self.is_downloaded and not self.file_loc:
+            raise ValueError("file_loc is required when is_downloaded is true")
+        return self
+    
+class PlaylistSwap(BaseModel):
+    original: int
+    swap: int
+
+class PlaylistMove(BaseModel):
+    p_id: int
+    order_num: int
+
+class PlaylistJump(BaseModel):
+    order_num: int
