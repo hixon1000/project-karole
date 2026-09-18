@@ -29,6 +29,9 @@ export default function AdminHeader() {
                 <Link className={pathname === "/admin/operations" ? styles.active : ""} href="/admin/operations">
                     Operations
                 </Link>
+                <Link href="/admin/view" target="_blank" rel="noreferrer">
+                    View
+                </Link>
                 <button className={styles.logout} type="button" onClick={logOut}>
                     Log out
                 </button>

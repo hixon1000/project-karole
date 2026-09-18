@@ -75,6 +75,23 @@ export default function AdminPlaylist() {
         }
     }
 
+    async function jumpSong(song) {
+        setError("");
+        try {
+            const response = await adminFetch(`${BACKEND_URI}/playlist/jump`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ order_num: song.order_num }),
+            });
+            const result = await response.json().catch(() => null);
+            if (!response.ok) {
+                throw new Error(result?.detail || `Request failed with status ${response.status}`);
+            }
+        } catch (requestError) {
+            setError(requestError.message);
+        }
+    }
+
     function moveSong(songId, targetIndex) {
         if (targetIndex < 0 || targetIndex >= songs.length) return;
         const song = songs.find((entry) => entry.p_id === songId);
@@ -148,6 +165,10 @@ export default function AdminPlaylist() {
                                         className={draggedId === song.p_id ? styles.dragging : ""}
                                         key={song.p_id}
                                         draggable
+                                        onClick={(event) => {
+                                            if (draggedId !== null || event.target.closest("button, input, a")) return;
+                                            jumpSong(song);
+                                        }}
                                         onDragStart={() => setDraggedId(song.p_id)}
                                         onDragEnd={() => setDraggedId(null)}
                                         onDragOver={(event) => event.preventDefault()}
@@ -160,9 +181,16 @@ export default function AdminPlaylist() {
                                         <td>{song.name}</td>
                                         <td>
                                             <div className={styles.channel}>
-                                                {song.url_channel_icon && (
-                                                    <img className={styles.channelIcon} src={song.url_channel_icon} alt="" />
-                                                )}
+                                                {/* Fallback: transparent 1x1 SVG if icon URL missing */}
+                                                <img
+                                                    className={styles.channelIcon}
+                                                    src={song.url_channel_icon || "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiPjwvc3ZnPg=="}
+                                                    alt=""
+                                                    onError={(e) => {
+                                                        // If the provided URL fails to load, replace with transparent placeholder.
+                                                        e.currentTarget.src = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiPjwvc3ZnPg==";
+                                                    }}
+                                                />
                                                 <span className={styles.channelName}>{song.url_creator}</span>
                                             </div>
                                         </td>

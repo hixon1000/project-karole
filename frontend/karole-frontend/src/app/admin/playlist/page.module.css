@@ -130,6 +130,7 @@
 
 .tableWrap tbody tr:hover {
   background: #111;
+  cursor: pointer;
 }
 
 .dragging {

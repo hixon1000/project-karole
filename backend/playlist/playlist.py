@@ -1,15 +1,18 @@
-from models import PlaylistInput, NameInput, PlaylistEntry, PlaylistSwap, PlaylistMove
+from models import PlaylistInput, NameInput, PlaylistEntry, PlaylistSwap, PlaylistMove, PlaylistJump
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from database import client
-from models import PlaylistInput, NameInput, PlaylistEntry, PlaylistSwap, PlaylistJump
 from name import name
+import asyncio
+import jwt
+import os
 import pymongo, pymongo.errors
 import time
 from typing import Any, cast
 from html.parser import HTMLParser
 from urllib.request import Request as UrlRequest, urlopen
 from yt_dlp import YoutubeDL
-from auth import require_admin
+from auth import JWT_SECRET, require_admin
+from fastapi.responses import StreamingResponse
 
 col = client["playlist"]
 
@@ -99,9 +102,42 @@ async def add_song_in_order(order_id: int, song_info: PlaylistEntry) -> Playlist
     return playlist_entry
 
 def extract_video_info(url: str) -> dict:
-    options = {"quiet": True, "no_warnings": True, "skip_download": True}
+    options = _yt_dlp_options()
     with YoutubeDL(cast(Any, options)) as downloader:
         return cast(dict, downloader.extract_info(url, download=False))
+
+def extract_playback_url(url: str) -> str | None:
+    options = _yt_dlp_options()
+    options["format"] = "best[ext=mp4]/best"
+    with YoutubeDL(cast(Any, options)) as downloader:
+        video_info = cast(dict, downloader.extract_info(url, download=False))
+    return video_info.get("url")
+
+def extract_playback_formats(url: str) -> tuple[str, str | None]:
+    options = _yt_dlp_options()
+    options["format"] = "bestvideo+bestaudio/best"
+    with YoutubeDL(cast(Any, options)) as downloader:
+        video_info = cast(dict, downloader.extract_info(url, download=False))
+    requested_formats = video_info.get("requested_formats") or []
+    if len(requested_formats) >= 2:
+        return requested_formats[0]["url"], requested_formats[1]["url"]
+    if video_info.get("url"):
+        return video_info["url"], None
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail="No playable video stream was found",
+    )
+
+def _yt_dlp_options() -> dict:
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+    }
+    cookie_file = os.getenv("YTDLP_COOKIE_FILE")
+    if cookie_file and os.path.exists(cookie_file):
+        opts["cookiefile"] = cookie_file
+    return opts
 
 class ChannelIconParser(HTMLParser):
     def __init__(self):
@@ -177,10 +213,69 @@ async def now_playing(request: Request) -> PlaylistEntry | None:
 async def playing_song(request: Request):
     return request.app.state.current_song
 
+@router.get("/playback-source", dependencies=[Depends(require_admin)])
+async def playback_source(request: Request) -> dict[str, str | None]:
+    current_song = request.app.state.current_song["song"]
+    if current_song is None:
+        return {"url": None}
+    playback_url = extract_playback_url(current_song.url)
+    if playback_url is None:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="No playable video stream was found",
+        )
+    return {"url": playback_url}
+
+@router.get("/playback-stream")
+async def playback_stream(request: Request, token: str):
+    try:
+        jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except jwt.PyJWTError as error:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        ) from error
+
+    current_song = request.app.state.current_song["song"]
+    if current_song is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No song is currently selected",
+        )
+    video_url, audio_url = extract_playback_formats(current_song.url)
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", video_url]
+    if audio_url:
+        command.extend(["-i", audio_url, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac"])
+    else:
+        command.extend(["-c", "copy"])
+    command.extend(["-f", "mp4", "-movflags", "frag_keyframe+empty_moov", "pipe:1"])
+
+    async def stream():
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            if process.stdout is None:
+                raise RuntimeError("FFmpeg stdout is not available")
+            while chunk := await process.stdout.read(1024 * 1024):
+                yield chunk
+        finally:
+            if process.returncode is None:
+                process.terminate()
+            await process.wait()
+
+    return StreamingResponse(stream(), media_type="video/mp4")
+
 @router.post("/play_pause", dependencies=[Depends(require_admin)])
 async def play_pause(request: Request) -> bool: 
     if request.app.state.current_song["song"] is None:
         next_song = await col.find_one({}, sort=[("order_num", 1)])
+        if next_song is None:
+            return False
+        next_song.pop("_id", None)
+        request.app.state.current_song["song"] = PlaylistEntry(**next_song)
     if request.app.state.current_song["playing"]:
         request.app.state.current_song["playing"] = False
         return False
@@ -193,7 +288,7 @@ async def skip(request: Request):
     current_song = request.app.state.current_song["song"]
     next_song_filter = {}
     if current_song is not None:
-        next_song_filter = {"order_num": {"$gt": current_song["order_num"]}}
+        next_song_filter = {"order_num": {"$gt": current_song.order_num}}
 
     next_song = await col.find_one(
         next_song_filter,
@@ -215,7 +310,7 @@ async def back(request: Request):
     current_song = request.app.state.current_song["song"]
     prev_song_filter = {}
     if current_song is not None:
-        prev_song_filter = {"order_num": {"$lt": current_song["order_num"]}}
+        prev_song_filter = {"order_num": {"$lt": current_song.order_num}}
     prev_song = await col.find_one(prev_song_filter, sort=[("order_num", -1)])
     
     if prev_song is None:

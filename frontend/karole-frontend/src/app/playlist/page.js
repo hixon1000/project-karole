@@ -35,7 +35,7 @@ export default function Playlist() {
             }
         }
 
-        loadPlaylist();
+        loadPlaylst();
         const refreshTimer = window.setInterval(loadPlaylist, 5000);
 
         return () => {
@@ -75,13 +75,11 @@ export default function Playlist() {
                                             <td className={styles.order}>{index + 1}</td>
                                             <td>{song.name}</td>
                                             <td className={styles.channel}>
-                                                {song.url_channel_icon && (
-                                                    <img
-                                                        className={styles.channelIcon}
-                                                        src={song.url_channel_icon}
-                                                        alt=""
-                                                    />
-                                                )}
+                                                <img
+                                                    className={styles.channelIcon}
+                                                    src={song.url_channel_icon || "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIGZpbGw9IiNFMEUwRTAiLz48L3N2Zz4="}
+                                                    alt=""
+                                                />
                                                 <span className={styles.channelName}>{song.url_creator}</span>
                                             </td>
                                             <td>

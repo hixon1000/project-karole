@@ -1,0 +1,101 @@
+.page {
+  min-height: 100vh;
+  background: #050505;
+  color: #f5f5f5;
+  font-family: var(--font-geist-sans);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  margin-top: 114px;
+}
+
+.playerArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  padding-bottom: 90px;
+  min-height: 0;
+}
+
+.player {
+  width: min(1280px, 100%);
+  aspect-ratio: 16 / 9;
+  border: 0;
+  flex-shrink: 0;
+}
+
+.songTitle {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  max-width: min(60%, 680px);
+  overflow: hidden;
+  color: #fff;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.error {
+  position: absolute;
+  top: 20px;
+  color: #ff8f8f;
+  font-size: 13px;
+}
+
+.controls {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px;
+  background: rgba(5, 5, 5, 0.94);
+  opacity: 1;
+  transition: opacity 180ms ease;
+  z-index: 1;
+}
+
+.controls.playing {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.page:hover .controls.playing {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.controls button {
+  min-width: 88px;
+  border: 1px solid #555;
+  border-radius: 0;
+  padding: 10px 16px;
+  background: #111;
+  color: #f5f5f5;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.controls button:hover {
+  border-color: #fff;
+  background: #222;
+}
+
+@media (max-width: 600px) {
+  .page {
+    padding: 20px 12px 0;
+  }
+
+  .playerArea {
+    min-height: 100vh;
+  }
+
+  .controls button {
+    min-width: 0;
+    flex: 1;
+  }
+}
