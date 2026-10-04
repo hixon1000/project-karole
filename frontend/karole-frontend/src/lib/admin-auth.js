@@ -1,23 +1,20 @@
-export const ADMIN_TOKEN_KEY = "karole-admin-token";
+// Requests made as the admin. The login lives in an HttpOnly cookie set by the backend, so
+// page scripts never see it; the browser attaches it when credentials are included.
+import { BACKEND_URI } from "./config";
 
-export function getAdminToken() {
-    return window.sessionStorage.getItem(ADMIN_TOKEN_KEY);
+const LOGIN_PAGE = "/admin/login";
+
+export async function adminFetch(url, options = {}) {
+    const response = await fetch(url, { ...options, credentials: "include" });
+    if (response.status === 401) {
+        // Not logged in, or the login has expired.
+        window.location.replace(LOGIN_PAGE);
+    }
+    return response;
 }
 
-export function adminFetch(url, options = {}) {
-    const headers = new Headers(options.headers);
-    const token = getAdminToken();
-    // Debug logging: output token presence and Authorization header.
-    console.log("adminFetch token:", token ? "[REDACTED]" : "<none>");
-    if (token) {
-        headers.set("Authorization", `Bearer ${token}`);
-        console.log("adminFetch Authorization header set");
-    } else {
-        console.warn("adminFetch called without token – Authorization header not set");
-    }
-
-    // Log the final headers for debugging (may include other custom headers).
-    console.log("adminFetch final headers:", [...headers.entries()]);
-
-    return fetch(url, { ...options, headers });
+export async function logOut() {
+    // Only the backend can remove an HttpOnly cookie.
+    await fetch(`${BACKEND_URI}/auth/logout`, { method: "POST", credentials: "include" });
+    window.location.replace(LOGIN_PAGE);
 }

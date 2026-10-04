@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { BACKEND_URI } from "../../../lib/config";
-import { ADMIN_TOKEN_KEY } from "../../../lib/admin-auth";
 import styles from "./page.module.css";
 
 export default function AdminLogin() {
@@ -29,10 +28,11 @@ export default function AdminLogin() {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
                 body: new URLSearchParams(credentials),
+                // Lets the browser store the login cookie the backend sends back.
+                credentials: "include",
             });
             const result = await response.json().catch(() => null);
             if (!response.ok) throw new Error(result?.detail || "Unable to sign in");
-            sessionStorage.setItem(ADMIN_TOKEN_KEY, result.access_token);
             router.replace("/admin/playlist");
         } catch (requestError) {
             setError(requestError.message);

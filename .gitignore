@@ -1,1 +1,3 @@
 *__pycache__
+backend/playlist/playlist_log.jsonl
+backend/.env

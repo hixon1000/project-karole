@@ -1,18 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { ADMIN_TOKEN_KEY } from "../lib/admin-auth";
+import { usePathname } from "next/navigation";
+import { logOut } from "../lib/admin-auth";
 import styles from "./admin-header.module.css";
 
 export default function AdminHeader() {
-    const router = useRouter();
     const pathname = usePathname();
-
-    function logOut() {
-        window.sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-        router.replace("/admin/login");
-    }
 
     return (
         <header className={styles.header}>

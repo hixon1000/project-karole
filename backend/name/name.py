@@ -97,7 +97,7 @@ async def name_to_alt(body: NameChange) -> NameEntry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alt name not found")
     for i in name_ent["name_alt"]:
         name_ret = await col.find_one_and_update({"name":body.name},{"$addToSet":{"name_alt":i}})
-    name_ret = await col.find_one_and_update({"name":body.name},{"$addToSet":{"name_alt":body.name_alt}})
+    name_ret = await col.find_one_and_update({"name":body.name},{"$addToSet":{"name_alt":body.name_alt}}, return_document=pymongo.ReturnDocument.AFTER)
     if (name_ret == None):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Name not found")
     name_ent = await col.find_one_and_delete({"name": body.name_alt})
@@ -138,14 +138,14 @@ async def alt_to_name(body: NameInput) -> NameEntry:
 
 @router.post("/blacklist")
 async def blacklist(body: NameInput) -> NameEntry:
-    name_ent = await col.find_one_and_update({"name":body.name},{"$set":{"blacklist":True}})
+    name_ent = await col.find_one_and_update({"name":body.name},{"$set":{"blacklist":True}}, return_document=pymongo.ReturnDocument.AFTER)
     if (name_ent == None):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Name not found")
     return NameEntry(**name_ent)
 
 @router.post("/unblacklist")
 async def unblacklist(body: NameInput) -> NameEntry:
-    name_ent = await col.find_one_and_update({"name":body.name},{"$set":{"blacklist":False}})
+    name_ent = await col.find_one_and_update({"name":body.name},{"$set":{"blacklist":False}}, return_document=pymongo.ReturnDocument.AFTER)
     if (name_ent == None):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Name not found")
     return NameEntry(**name_ent)

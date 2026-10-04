@@ -18,7 +18,6 @@ app.include_router(name.router)
 app.include_router(pending_operation.router)
 app.include_router(playlist.router)
 app.include_router(auth_router)
-app.state.current_song = {"playing":False, "song":None}
 
 @app.get("/ping")
 async def root():

@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { BACKEND_URI } from "../../../lib/config";
-import { adminFetch, ADMIN_TOKEN_KEY } from "../../../lib/admin-auth";
+import { adminFetch, logOut } from "../../../lib/admin-auth";
+import { getErrorMessage } from "../../../lib/api-error";
 import AdminHeader from "../../../components/admin-header";
 import styles from "./page.module.css";
 
 export default function AdminNames() {
-    const router = useRouter();
     const [names, setNames] = useState([]);
     const [newName, setNewName] = useState("");
     const [status, setStatus] = useState("loading");
@@ -30,13 +29,8 @@ export default function AdminNames() {
     }
 
     useEffect(() => {
-        if (!sessionStorage.getItem(ADMIN_TOKEN_KEY)) {
-            router.replace("/admin/login");
-            return;
-        }
-
         Promise.resolve().then(loadNames);
-    }, [router]);
+    }, []);
 
     async function request(url, options = {}) {
         setError("");
@@ -45,7 +39,7 @@ export default function AdminNames() {
             const response = await adminFetch(`${BACKEND_URI}${url}`, options);
             const result = await response.json().catch(() => null);
             if (!response.ok) {
-                throw new Error(result?.detail || `Request failed with status ${response.status}`);
+                throw new Error(getErrorMessage(result, response));
             }
             await loadNames();
             return result;
@@ -142,10 +136,7 @@ export default function AdminNames() {
                         <p className={styles.eyebrow}>Admin / Names</p>
                         <h1>Manage names</h1>
                     </div>
-                    <button className={styles.signOut} onClick={() => {
-                        sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-                        router.replace("/admin/login");
-                    }}>Sign out</button>
+                    <button className={styles.signOut} onClick={logOut}>Sign out</button>
                 </div>
 
                 <form className={styles.addForm} onSubmit={addName}>

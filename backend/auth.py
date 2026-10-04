@@ -1,11 +1,13 @@
+# Admin login. A successful login stores a signed token in an HttpOnly cookie, which
+# the browser then sends with every request; require_admin checks that cookie.
 import hmac
 import os
 from datetime import datetime, timedelta, timezone
 
 import jwt
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi.security import OAuth2PasswordRequestForm
 
 load_dotenv()
 
@@ -15,39 +17,57 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 if not JWT_SECRET or not ADMIN_USERNAME or not ADMIN_PASSWORD:
     raise RuntimeError("JWT_SECRET, ADMIN_USERNAME, and ADMIN_PASSWORD must be set")
 
+ADMIN_COOKIE_NAME = "karole_admin_token"
+LOGIN_LIFETIME = timedelta(hours=2)
+
 router = APIRouter(prefix="/auth", tags=["auth"])
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
-async def require_admin(token: str = Depends(oauth2_scheme)) -> dict:
+async def require_admin(token: str | None = Cookie(default=None, alias=ADMIN_COOKIE_NAME)) -> dict:
+    if token is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not logged in")
     try:
         return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
     except jwt.PyJWTError as error:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
         ) from error
 
 
 @router.post("/login")
-async def login(form_data: OAuth2PasswordRequestForm = Depends()) -> dict[str, str]:
+async def login(response: Response, form_data: OAuth2PasswordRequestForm = Depends()) -> dict[str, str]:
+    # compare_digest raises TypeError on non-ASCII strings, so compare bytes instead.
     if not (
-        hmac.compare_digest(form_data.username, ADMIN_USERNAME)
-        and hmac.compare_digest(form_data.password, ADMIN_PASSWORD)
+        hmac.compare_digest(form_data.username.encode(), ADMIN_USERNAME.encode())
+        and hmac.compare_digest(form_data.password.encode(), ADMIN_PASSWORD.encode())
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
-            headers={"WWW-Authenticate": "Bearer"},
         )
 
     token = jwt.encode(
         {
             "sub": form_data.username,
-            "exp": datetime.now(timezone.utc) + timedelta(hours=2),
+            "exp": datetime.now(timezone.utc) + LOGIN_LIFETIME,
         },
         JWT_SECRET,
         algorithm="HS256",
     )
-    return {"access_token": token, "token_type": "bearer"}
+    # HttpOnly keeps the token away from page scripts. SameSite=Lax means the browser only
+    # sends it from pages on the same host as this server.
+    response.set_cookie(
+        key=ADMIN_COOKIE_NAME,
+        value=token,
+        max_age=int(LOGIN_LIFETIME.total_seconds()),
+        httponly=True,
+        samesite="lax",
+    )
+    return {"message": "Logged in"}
+
+
+@router.post("/logout")
+async def logout(response: Response) -> dict[str, str]:
+    response.delete_cookie(ADMIN_COOKIE_NAME)
+    return {"message": "Logged out"}

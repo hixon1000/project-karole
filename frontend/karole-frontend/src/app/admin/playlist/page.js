@@ -1,37 +1,43 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { BACKEND_URI } from "../../../lib/config";
-import { adminFetch, ADMIN_TOKEN_KEY } from "../../../lib/admin-auth";
+import { adminFetch, logOut } from "../../../lib/admin-auth";
 import AdminHeader from "../../../components/admin-header";
 import styles from "./page.module.css";
 
+// Shows a length in seconds as minutes:seconds, for example 3725 becomes "62:05".
+function formatDuration(totalSeconds) {
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 export default function AdminPlaylist() {
-    const router = useRouter();
     const [songs, setSongs] = useState([]);
     const [status, setStatus] = useState("loading");
     const [error, setError] = useState("");
+    const [playback, setPlayback] = useState({ playing: false, song: null });
     const [openMenu, setOpenMenu] = useState(null);
     const [draggedId, setDraggedId] = useState(null);
     const [targetPositions, setTargetPositions] = useState({});
 
     useEffect(() => {
-        if (!sessionStorage.getItem(ADMIN_TOKEN_KEY)) {
-            router.replace("/admin/login");
-            return;
-        }
-
         let isActive = true;
 
         async function loadPlaylist() {
             try {
+                // The playlist route is public but this one needs a login, so it is also what
+                // notices a missing or expired one; adminFetch then goes to the login page.
+                const playbackResponse = await adminFetch(`${BACKEND_URI}/playlist/current-play`, { cache: "no-store" });
                 const response = await adminFetch(`${BACKEND_URI}/playlist/`, { cache: "no-store" });
-                if (!response.ok) {
+                if (!playbackResponse.ok || !response.ok) {
                     throw new Error(`Request failed with status ${response.status}`);
                 }
+                const nextPlayback = await playbackResponse.json();
                 const playlist = await response.json();
                 if (isActive) {
+                    setPlayback(nextPlayback);
                     setSongs(playlist.sort((first, second) => first.order_num - second.order_num));
                     setStatus("ready");
                     setError("");
@@ -50,7 +56,7 @@ export default function AdminPlaylist() {
             isActive = false;
             window.clearInterval(refreshTimer);
         };
-    }, [router]);
+    }, []);
 
     async function refreshPlaylist() {
         const response = await adminFetch(`${BACKEND_URI}/playlist/`, { cache: "no-store" });
@@ -58,6 +64,31 @@ export default function AdminPlaylist() {
             throw new Error(`Request failed with status ${response.status}`);
         }
         setSongs((await response.json()).sort((first, second) => first.order_num - second.order_num));
+        // Deleting or re-queueing songs can change what is playing.
+        await refreshPlayback();
+    }
+
+    async function refreshPlayback() {
+        const response = await adminFetch(`${BACKEND_URI}/playlist/current-play`, { cache: "no-store" });
+        if (!response.ok) {
+            throw new Error(`Request failed with status ${response.status}`);
+        }
+        setPlayback(await response.json());
+    }
+
+    // Back, play/pause and skip: the same backend routes the player page uses.
+    async function control(path) {
+        setError("");
+        try {
+            const response = await adminFetch(`${BACKEND_URI}/playlist/${path}`, { method: "POST" });
+            const result = await response.json().catch(() => null);
+            if (!response.ok) {
+                throw new Error(result?.detail || `Request failed with status ${response.status}`);
+            }
+            await refreshPlayback();
+        } catch (requestError) {
+            setError(requestError.message);
+        }
     }
 
     async function updatePlaylist(url, options) {
@@ -87,13 +118,14 @@ export default function AdminPlaylist() {
             if (!response.ok) {
                 throw new Error(result?.detail || `Request failed with status ${response.status}`);
             }
+            setPlayback(result);
         } catch (requestError) {
             setError(requestError.message);
         }
     }
 
     function moveSong(songId, targetIndex) {
-        if (targetIndex < 0 || targetIndex >= songs.length) return;
+        if (!Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= songs.length) return;
         const song = songs.find((entry) => entry.p_id === songId);
         if (!song || song.order_num === targetIndex) return;
         updatePlaylist("/playlist/move", {
@@ -128,6 +160,11 @@ export default function AdminPlaylist() {
         setTargetPositions((current) => ({ ...current, [songId]: value }));
     }
 
+    let nowPlayingText = "Nothing is playing";
+    if (playback.song) {
+        nowPlayingText = `${playback.playing ? "Playing" : "Paused"}: ${playback.song.url_title}`;
+    }
+
     return (
         <main className={styles.page}>
             <AdminHeader />
@@ -137,13 +174,37 @@ export default function AdminPlaylist() {
                         <p className={styles.eyebrow}>Admin / Playlist</p>
                         <h1>Manage playlist</h1>
                     </div>
-                    <button className={styles.signOut} onClick={() => {
-                        sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-                        router.replace("/admin/login");
-                    }}>Sign out</button>
+                    <button className={styles.signOut} onClick={logOut}>Sign out</button>
+                </div>
+
+                <div className={styles.controls}>
+                    <p className={styles.nowPlaying}>{nowPlayingText}</p>
+                    <div className={styles.controlButtons}>
+                        <button type="button" onClick={() => control("back")} aria-label="Previous song">Back</button>
+                        <button type="button" onClick={() => control("play_pause")}>
+                            {playback.playing ? "Pause" : "Play"}
+                        </button>
+                        <button type="button" onClick={() => control("skip")} aria-label="Next song">Skip</button>
+                    </div>
                 </div>
 
                 {error && <p className={styles.error} role="alert">{error}</p>}
+                {songs.filter((song) => song.is_too_long).map((song) => (
+                    <div className={styles.notice} role="alert" key={song.p_id}>
+                        <p>
+                            &quot;{song.url_title}&quot; added by {song.name} is {formatDuration(song.duration)} long,
+                            which is over the limit.
+                        </p>
+                        <div className={styles.noticeActions}>
+                            <button onClick={() => updatePlaylist(`/playlist/delete?playlist_id=${song.p_id}`, { method: "DELETE" })}>
+                                Skip song
+                            </button>
+                            <button onClick={() => updatePlaylist(`/playlist/keep?playlist_id=${song.p_id}`, { method: "POST" })}>
+                                Keep
+                            </button>
+                        </div>
+                    </div>
+                ))}
                 {status === "loading" && <p className={styles.message}>Loading playlist...</p>}
                 {status === "ready" && songs.length === 0 && <p className={styles.message}>No songs in the playlist.</p>}
                 {status === "ready" && songs.length > 0 && (

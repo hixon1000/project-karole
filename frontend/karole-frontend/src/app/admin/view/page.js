@@ -1,28 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { BACKEND_URI } from "../../../lib/config";
-import { adminFetch, ADMIN_TOKEN_KEY } from "../../../lib/admin-auth";
+import { adminFetch } from "../../../lib/admin-auth";
 import styles from "./page.module.css";
 
 export default function AdminView() {
-    const router = useRouter();
     const videoRef = useRef(null);
     const [playback, setPlayback] = useState({ playing: false, song: null });
     const [error, setError] = useState("");
     const songId = playback.song?.p_id;
-    const token = typeof window !== "undefined" ? window.sessionStorage.getItem(ADMIN_TOKEN_KEY) || "" : "";
-    const source = songId != null && token
-        ? `${BACKEND_URI}/playlist/playback-stream?token=${encodeURIComponent(token)}`
-        : "";
+    // The browser sends the login cookie with the video request by itself.
+    const source = songId != null ? `${BACKEND_URI}/playlist/playback-stream` : "";
 
     useEffect(() => {
-        if (!sessionStorage.getItem(ADMIN_TOKEN_KEY)) {
-            router.replace("/admin/login");
-            return undefined;
-        }
-
         let isActive = true;
 
         async function pollPlayback() {
@@ -47,8 +38,10 @@ export default function AdminView() {
             isActive = false;
             window.clearInterval(timer);
         };
-    }, [router]);
+    }, []);
 
+    // songId is a dependency because every song gets a fresh <video> element
+    // (see the key below), and that new element has to be started too.
     useEffect(() => {
         const video = videoRef.current;
         if (!video || !source) return;
@@ -57,7 +50,7 @@ export default function AdminView() {
         } else {
             video.pause();
         }
-    }, [playback.playing, source]);
+    }, [playback.playing, source, songId]);
 
     async function control(path) {
         try {
@@ -78,19 +71,6 @@ export default function AdminView() {
     }
 
     const song = playback.song;
-
-    // Autoplay video automatically when a new song is loaded.
-    // This effect watches for changes to the `song` object. When a song
-    // becomes available (e.g., after skip/back/jump), we attempt to play
-    // the video and ensure the playback state reflects that it is playing.
-    useEffect(() => {
-        if (song && videoRef.current) {
-            // Attempt to start playback; handle possible autoplay block.
-            videoRef.current.play().catch(() => setError("Playback was blocked. Press play to start the video."));
-            // Update state to mark as playing if not already.
-            setPlayback((prev) => ({ ...prev, playing: true }));
-        }
-    }, [song]);
 
     return (
         <main className={styles.page}>

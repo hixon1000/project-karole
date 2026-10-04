@@ -1,0 +1,218 @@
+# Owns the playlist while the server runs: the songs in play order, which song is
+# playing, and the append-only JSON log of every change. Nothing is read back at
+# startup; the last line of the log is enough to recreate the object by hand.
+import json
+import os
+import time
+
+from models import NameEntry, PlaylistEntry
+
+# One JSON object per line, appended after every change.
+PLAYLIST_LOG_PATH = os.path.join(os.path.dirname(__file__), "playlist_log.jsonl")
+
+
+class Playlist:
+    def __init__(self, log_path: str):
+        self.log_path = log_path
+        self.songs: list[PlaylistEntry] = []
+        self.current_song: PlaylistEntry | None = None
+        self.playing = False
+
+    def renumber_and_log(self) -> None:
+        # order_num always mirrors the position in the list, so it never has gaps or duplicates.
+        for index, song in enumerate(self.songs):
+            song.order_num = index
+
+        current_song_p_id = None
+        if self.current_song is not None:
+            current_song_p_id = self.current_song.p_id
+        log_entry = {
+            "time": time.time(),
+            "playing": self.playing,
+            "current_song_p_id": current_song_p_id,
+            "songs": [song.model_dump() for song in self.songs],
+        }
+        with open(self.log_path, "a", encoding="utf-8") as log_file:
+            log_file.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+
+    def find_index(self, p_id: int) -> int | None:
+        for index, song in enumerate(self.songs):
+            if song.p_id == p_id:
+                return index
+        return None
+
+    def find_current_index(self) -> int | None:
+        for index, song in enumerate(self.songs):
+            if song is self.current_song:
+                return index
+        return None
+
+    def find_next_song(self) -> PlaylistEntry | None:
+        current_index = self.find_current_index()
+        if current_index is None or current_index + 1 >= len(self.songs):
+            return None
+        return self.songs[current_index + 1]
+
+    def find_song_by_url(self, service: str | None, url_id: str | None) -> PlaylistEntry | None:
+        for song in self.songs:
+            if song.service == service and song.url_id == url_id:
+                return song
+        return None
+
+    def next_p_id(self) -> int:
+        highest_p_id = -1
+        for song in self.songs:
+            if song.p_id > highest_p_id:
+                highest_p_id = song.p_id
+        return highest_p_id + 1
+
+    def find_priority_for_name(self, name_id: int) -> int:
+        # A person's songs are numbered 1, 2, 3... so everyone gets a first turn
+        # before anyone gets a second one. Returns 0 when they have no songs yet.
+        highest_priority = 0
+        for song in self.songs:
+            if song.name_id == name_id and song.priority_num > highest_priority:
+                highest_priority = song.priority_num
+        return highest_priority
+
+    def find_insert_index(self, priority: int) -> int:
+        # When the playing song is from a later priority round than the new song, the
+        # usual spot below is already behind it and would never be reached, so the
+        # new song plays next instead.
+        current_index = self.find_current_index()
+        if current_index is not None and self.songs[current_index].priority_num > priority:
+            return current_index + 1
+
+        # Otherwise a song goes right after the last song of its own priority round, or
+        # of the closest lower round when its own round has no songs yet.
+        insert_index = 0
+        closest_priority = None
+        for index, song in enumerate(self.songs):
+            if song.priority_num > priority:
+                continue
+            if closest_priority is None or song.priority_num >= closest_priority:
+                closest_priority = song.priority_num
+                insert_index = index + 1
+        return insert_index
+
+    def add_song(self, song_info: dict, priority: int) -> PlaylistEntry:
+        insert_index = self.find_insert_index(priority)
+        song = PlaylistEntry(
+            **song_info,
+            p_id=self.next_p_id(),
+            order_num=insert_index,
+            priority_num=priority,
+        )
+        self.songs.insert(insert_index, song)
+        self.renumber_and_log()
+        return song
+
+    def delete_song(self, p_id: int) -> PlaylistEntry | None:
+        index = self.find_index(p_id)
+        if index is None:
+            return None
+        song = self.songs.pop(index)
+        if song is self.current_song:
+            # The playing song was removed, so playback continues with the song that took its place.
+            self.select_song(index)
+        self.renumber_and_log()
+        return song
+
+    def keep_long_song(self, p_id: int) -> PlaylistEntry | None:
+        # The admin chose to let a too-long song play, so stop flagging it.
+        index = self.find_index(p_id)
+        if index is None:
+            return None
+        song = self.songs[index]
+        song.is_too_long = False
+        self.renumber_and_log()
+        return song
+
+    def move_song(self, p_id: int, new_index: int) -> PlaylistEntry | None:
+        index = self.find_index(p_id)
+        if index is None:
+            return None
+        song = self.songs.pop(index)
+        self.songs.insert(new_index, song)
+        self.renumber_and_log()
+        return song
+
+    def swap_songs(self, first_index: int, second_index: int) -> bool:
+        song_count = len(self.songs)
+        if not (0 <= first_index < song_count and 0 <= second_index < song_count):
+            return False
+        first_song = self.songs[first_index]
+        self.songs[first_index] = self.songs[second_index]
+        self.songs[second_index] = first_song
+        self.renumber_and_log()
+        return True
+
+    def flush(self) -> None:
+        self.songs = []
+        self.current_song = None
+        self.playing = False
+        self.renumber_and_log()
+
+    def requeue_songs_under_name(self, old_name_id: int, name_entry: NameEntry) -> None:
+        # Punish mode: when a name is merged into another, its songs lose their places
+        # and are queued again, oldest first, as new songs of the name they now belong to.
+        songs_to_requeue = []
+        for song in self.songs:
+            if song.name_id == old_name_id:
+                songs_to_requeue.append(song)
+        songs_to_requeue.sort(key=lambda song: song.time)
+
+        for song in songs_to_requeue:
+            song.name_id = name_entry.name_id
+            song.name = name_entry.name
+            if song is self.current_song:
+                # Moving the playing song would make skip jump over everything in between.
+                continue
+            self.songs.pop(self.find_index(song.p_id))
+            song.priority_num = self.find_priority_for_name(name_entry.name_id) + 1
+            self.songs.insert(self.find_insert_index(song.priority_num), song)
+        self.renumber_and_log()
+
+    def playback_state(self) -> dict:
+        return {"playing": self.playing, "song": self.current_song}
+
+    def select_song(self, index: int) -> None:
+        # Plays the song at this position, or stops playback when the position is outside the playlist.
+        if 0 <= index < len(self.songs):
+            self.current_song = self.songs[index]
+            self.playing = True
+        else:
+            self.current_song = None
+            self.playing = False
+
+    def play_pause(self) -> bool:
+        if self.current_song is None:
+            if not self.songs:
+                return False
+            self.current_song = self.songs[0]
+        self.playing = not self.playing
+        self.renumber_and_log()
+        return self.playing
+
+    def skip(self) -> None:
+        current_index = self.find_current_index()
+        if current_index is None:
+            self.select_song(0)
+        else:
+            self.select_song(current_index + 1)
+        self.renumber_and_log()
+
+    def back(self) -> None:
+        current_index = self.find_current_index()
+        if current_index is None:
+            self.select_song(len(self.songs) - 1)
+        else:
+            self.select_song(current_index - 1)
+        self.renumber_and_log()
+
+    def jump(self, index: int) -> None:
+        self.select_song(index)
+        self.renumber_and_log()
+
+
+playlist_store = Playlist(PLAYLIST_LOG_PATH)

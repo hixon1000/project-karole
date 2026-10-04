@@ -2,18 +2,32 @@
 
 import { useState, useSyncExternalStore } from "react";
 import { BACKEND_URI } from "../../lib/config";
+import { getErrorMessage } from "../../lib/api-error";
 import Header from "../../components/header";
 import styles from "./page.module.css";
 
-const NAME_STORAGE_KEY = "karole-user-name";
+const NAME_COOKIE = "karole-user-name";
+const NAME_COOKIE_SECONDS = 60 * 60 * 24 * 365;
 
-function subscribeToAuthor(callback) {
-    window.addEventListener("storage", callback);
-    return () => window.removeEventListener("storage", callback);
+function subscribeToSavedName() {
+    // Cookies have no change event. The page reads the cookie again whenever it renders,
+    // which it does right after saving a name.
+    return () => {};
 }
 
 function getSavedName() {
-    return window.localStorage.getItem(NAME_STORAGE_KEY) || "";
+    // document.cookie looks like "first=value; second=value".
+    for (const cookie of document.cookie.split("; ")) {
+        const [cookieName, cookieValue] = cookie.split("=");
+        if (cookieName === NAME_COOKIE) {
+            return decodeURIComponent(cookieValue);
+        }
+    }
+    return "";
+}
+
+function saveName(name) {
+    document.cookie = `${NAME_COOKIE}=${encodeURIComponent(name)}; max-age=${NAME_COOKIE_SECONDS}; path=/; samesite=lax`;
 }
 
 function getServerAuthor() {
@@ -25,7 +39,7 @@ export default function AddSong() {
     const [submittedName, setSubmittedName] = useState("");
     const [status, setStatus] = useState("idle");
     const [message, setMessage] = useState("");
-    const savedName = useSyncExternalStore(subscribeToAuthor, getSavedName, getServerAuthor);
+    const savedName = useSyncExternalStore(subscribeToSavedName, getSavedName, getServerAuthor);
     const name = savedName || submittedName || form.name;
     const hasSavedName = Boolean(savedName || submittedName);
 
@@ -54,10 +68,10 @@ export default function AddSong() {
             const result = await response.json().catch(() => null);
 
             if (!response.ok) {
-                throw new Error(result?.detail || `Request failed with status ${response.status}`);
+                throw new Error(getErrorMessage(result, response));
             }
 
-            window.localStorage.setItem(NAME_STORAGE_KEY, name.trim());
+            saveName(name.trim());
             setForm({ ...form, name: name.trim() });
             setSubmittedName(name.trim());
             setStatus("success");

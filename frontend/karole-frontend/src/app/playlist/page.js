@@ -35,7 +35,7 @@ export default function Playlist() {
             }
         }
 
-        loadPlaylst();
+        loadPlaylist();
         const refreshTimer = window.setInterval(loadPlaylist, 5000);
 
         return () => {

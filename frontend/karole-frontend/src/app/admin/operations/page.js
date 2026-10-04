@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { BACKEND_URI } from "../../../lib/config";
-import { adminFetch, ADMIN_TOKEN_KEY } from "../../../lib/admin-auth";
+import { adminFetch, logOut } from "../../../lib/admin-auth";
 import AdminHeader from "../../../components/admin-header";
 import styles from "./page.module.css";
 
 export default function AdminOperations() {
-    const router = useRouter();
     const [operations, setOperations] = useState([]);
     const [status, setStatus] = useState("loading");
     const [error, setError] = useState("");
@@ -27,13 +25,8 @@ export default function AdminOperations() {
     }
 
     useEffect(() => {
-        if (!sessionStorage.getItem(ADMIN_TOKEN_KEY)) {
-            router.replace("/admin/login");
-            return;
-        }
-
         Promise.resolve().then(loadOperations);
-    }, [router]);
+    }, []);
 
     async function runOperation(url, operationId, confirmation) {
         if (confirmation && !window.confirm(confirmation)) return;
@@ -100,10 +93,7 @@ export default function AdminOperations() {
                     <div className={styles.headingActions}>
                         <button className={styles.matchAll} onClick={matchAll}>Match all</button>
                         <button className={styles.flushButton} onClick={flushOperations}>Ignore all</button>
-                        <button className={styles.signOut} onClick={() => {
-                            sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-                            router.replace("/admin/login");
-                        }}>Sign out</button>
+                        <button className={styles.signOut} onClick={logOut}>Sign out</button>
                     </div>
                 </div>
 
